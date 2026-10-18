@@ -1,0 +1,10 @@
+{
+  "server_config": "config.local.toml",
+  "cluster": "scnet",
+  "refresh_seconds": 60,
+  "always_on_top": true,
+  "opacity": 0.97,
+  "watched_jobs": [],
+  "job_logs": {},
+  "project_ledger": null
+}

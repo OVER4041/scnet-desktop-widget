@@ -1,0 +1,11 @@
+# Credentials remain in your local OpenSSH configuration.
+[server]
+local_root = "."
+state_dir = ".state"
+command_timeout = 30
+max_output_bytes = 65536
+
+[clusters.scnet]
+ssh_host = "your-hpc"
+remote_root = "~"
+connect_timeout = 15

@@ -1,0 +1,4 @@
+* text=auto
+*.py text eol=lf
+*.pyw text eol=lf
+*.vbs text eol=crlf
