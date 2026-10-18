@@ -10,6 +10,7 @@ from .backend import Bridge, job_id
 from .config import BridgeError, Settings
 from .backend import remote_path
 from .log_discovery import SCRIPT_MARKER, discovery_paths, log_read_script, read_log_records
+from .eta import estimate_progress
 
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY",
@@ -270,6 +271,14 @@ fi
             except (BridgeError, OSError) as exc:
                 snapshot.progress = {"job_id": chosen.job_id, "log_status": "日志暂不可读，将自动重试"}
                 snapshot.warnings.append(f"计算日志暂不可读：{safe_text(str(exc), 100)}")
+            snapshot.received_at = time.time()
+            snapshot.received_monotonic = time.monotonic()
+            old_job = next((job for job in self.previous.jobs if job.job_id == chosen.job_id), None) if self.previous else None
+            old_progress = self.previous.progress if old_job and old_job.in_queue and old_job.state in RUNNING else None
+            snapshot.progress = estimate_progress(snapshot.progress, now=snapshot.received_at,
+                previous=old_progress, previous_at=self.previous.received_at if self.previous else None,
+                active=chosen.in_queue and chosen.state in RUNNING, elapsed_s=chosen.elapsed_s,
+                previous_elapsed_s=old_job.elapsed_s if old_job else None)
         self.previous = snapshot
         return snapshot
 

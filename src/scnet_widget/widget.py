@@ -17,6 +17,7 @@ from tkinter import messagebox, ttk
 
 from .config import BridgeError, Settings
 from .topmost import TopmostController
+from .eta import eta_labels
 from .monitor import (Job, PENDING, RUNNING, TERMINAL, SlurmMonitor, Snapshot,
                       duration_label, pending_seconds, project_totals)
 
@@ -192,11 +193,15 @@ class Widget:
             self.label(item, caption, color=MUTED, size=9).pack(pady=(0, 10))
             self.counter_labels[key] = number
         self.compact_bar = tk.Frame(self.shell, bg=BG)
-        self.compact_job = self.label(self.compact_bar, "当前作业", color=MUTED, size=9)
+        compact_times = tk.Frame(self.compact_bar, bg=BG)
+        compact_times.pack(fill="x")
+        self.compact_job = self.label(compact_times, "当前作业", color=MUTED, size=9)
         self.compact_job.pack(side="left")
-        self.compact_timer = tk.Label(self.compact_bar, text="--:--:--", bg=BG, fg=TEXT,
+        self.compact_timer = tk.Label(compact_times, text="--:--:--", bg=BG, fg=TEXT,
                                       font=("Consolas", 19, "bold"))
         self.compact_timer.pack(side="right")
+        self.compact_eta = self.label(self.compact_bar, "预计剩余：等待进度", color=BLUE, size=9, anchor="w")
+        self.compact_eta.pack(fill="x", pady=(4, 0))
         self.body = tk.Frame(self.shell, bg=BG)
         self.body.pack(fill="both", expand=True)
         focus_card = tk.Frame(self.body, bg=CARD, highlightbackground=LINE, highlightthickness=1)
@@ -227,6 +232,10 @@ class Widget:
         self.progress.pack(fill="x", pady=(8, 0))
         self.progress_note = self.label(inner, "", size=8, color=MUTED, anchor="w")
         self.progress_note.pack(fill="x", pady=(6, 0))
+        self.eta_value = self.label(inner, "预计剩余：等待进度", size=9, color=BLUE, anchor="w")
+        self.eta_value.pack(fill="x", pady=(7, 0))
+        self.eta_note = self.label(inner, "", size=8, color=MUTED, anchor="w")
+        self.eta_note.pack(fill="x", pady=(3, 0))
         table_head = tk.Frame(self.body, bg=BG)
         table_head.pack(fill="x", padx=18)
         self.label(table_head, "作业列表", size=10, bold=True).pack(side="left")
@@ -416,6 +425,10 @@ class Widget:
             self.timer_caption.configure(text=caption+(" · 待同步" if not recent else ""))
             self.resources.configure(text=f"{job.cpus} 核  ·  申请 {memory_label(job.memory)}"+(f"  ·  {job.location}" if job.location and job.state in RUNNING else ""))
             progress = snap.progress if snap.progress.get("job_id") == job.job_id else {}
+            eta_value, eta_note = eta_labels(progress, recent=recent, running=job.in_queue and job.state in RUNNING)
+            self.eta_value.configure(text=eta_value)
+            self.eta_note.configure(text=eta_note)
+            self.compact_eta.configure(text=eta_value, fg=BLUE if recent else MUTED)
             fraction = 0
             if progress.get("iteration"):
                 self.progress_caption.configure(text=f"输运迭代 · 第 {progress['iteration']} 步", fg=BLUE)
@@ -453,6 +466,9 @@ class Widget:
             self.progress_caption.configure(text="暂无作业进度", fg=MUTED)
             self.progress_value.configure(text="")
             self.progress_note.configure(text="")
+            self.eta_value.configure(text="预计剩余：—")
+            self.eta_note.configure(text="")
+            self.compact_eta.configure(text="预计剩余：—")
             self.progress.delete("all")
         visible = sorted(snap.jobs, key=lambda item: (not item.in_queue, item.state == "UNKNOWN", -int(re.sub(r"\D", "", item.job_id) or 0)))
         rows = tuple((job.job_id, job.state_label, duration_label(job.elapsed_s)) for job in visible)

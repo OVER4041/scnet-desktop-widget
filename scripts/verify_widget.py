@@ -36,6 +36,10 @@ def main():
         assert selected is not None and app.focus_id.cget('text').endswith(selected.job_id)
         assert memory_label(selected.memory) in app.resources.cget('text')
         assert app.tree.get_children()
+        if snapshot.progress.get('eta_state') == 'estimated':
+            assert app.eta_value.cget('text').startswith('本阶段剩余约 ')
+            assert app.compact_eta.cget('text') == app.eta_value.cget('text')
+            assert '点/分' in app.eta_note.cget('text')
         app.toggle_compact()
         root.update()
         compact_height = root.winfo_height()
@@ -55,6 +59,9 @@ def main():
         assert app.timer.cget('text') == frozen
         assert app.counter_labels['running'].cget('text') == str(snapshot.counts()['running'])
         assert '上次记录' in app.connection.cget('text')
+        if selected.in_queue and selected.state == 'RUNNING':
+            assert '等待同步' in app.eta_value.cget('text')
+            assert '点/分' not in app.eta_note.cget('text')
         app.online = True
         app.error = ''
         app.paint()
@@ -69,6 +76,7 @@ def main():
         report = {'rendered': True, 'using_actual_cluster_snapshot': True,
             'job_id': app.focus, 'counts': snapshot.counts(), 'resources': app.resources.cget('text'),
             'progress': snapshot.progress, 'full_height': full_height, 'compact_height': compact_height,
+            'eta_label': app.eta_value.cget('text'), 'eta_detail': app.eta_note.cget('text'),
             'offline_data_preserved': True, 'offline_timer_frozen': True,
             'window_within_screen': top+height <= root.winfo_screenheight() and left+width <= root.winfo_screenwidth(),
             'screenshot': '.state/widget-preview.png'}

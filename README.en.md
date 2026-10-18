@@ -25,3 +25,7 @@ The widget follows active jobs without a job ID or log mapping. It reads schedul
 On Windows, the widget checks the foreground app once a second and temporarily removes topmost status when its client area covers its display. Leaving fullscreen restores the existing preference; a manually disabled topmost preference stays disabled. Borderless fullscreen and secondary-monitor coordinates are supported. Ordinary maximized windows, the desktop and the widget itself are excluded. Settings dialogs follow the same policy.
 
 Run `python scripts/verify_fullscreen.py` on an interactive Windows desktop for a short live test. It creates a separate test window, exercises fullscreen / borderless / maximized / minimized transitions, verifies the native topmost flag, and closes automatically without connecting to HPC.
+
+### Estimated remaining phase time
+
+Compact and expanded views show an approximate remaining q-point phase time, using `(total - current) / recent progress rate`. The rate uses at most 10 minutes and 32 observations, including idle intervals, and needs at least 30 seconds with positive progress. Samples stay in the local snapshot across short restarts. Job, log, total, counter or runtime changes reset sampling. Stalled output, insufficient data, offline/stale snapshots, unknown iteration convergence and inactive jobs suppress an estimate. This is the current phase only; it excludes subsequent stages. Estimates update with observations rather than counting down unobserved work.
