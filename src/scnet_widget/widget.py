@@ -16,6 +16,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from .config import BridgeError, Settings
+from .topmost import TopmostController
 from .monitor import (Job, PENDING, RUNNING, TERMINAL, SlurmMonitor, Snapshot,
                       duration_label, pending_seconds, project_totals)
 
@@ -121,7 +122,8 @@ class Widget:
         root.title(f"超算任务监视 · {options.cluster}")
         root.configure(bg=LINE)
         root.overrideredirect(True)
-        root.attributes("-topmost", options.always_on_top)
+        self.topmost = TopmostController(self.set_topmost)
+        self.topmost.update(options.always_on_top)
         root.attributes("-alpha", options.opacity)
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -477,8 +479,19 @@ class Widget:
 
     def tick(self):
         if not self.closed:
+            self.topmost.update(self.options.always_on_top)
             self.paint()
             self.root.after(1000, self.tick)
+
+    def set_topmost(self, enabled):
+        self.root.attributes("-topmost", enabled)
+        if not enabled and self.topmost.suspended:
+            self.root.lower()
+        for window in self.root.winfo_children():
+            if isinstance(window, tk.Toplevel):
+                window.attributes("-topmost", enabled)
+                if not enabled and self.topmost.suspended:
+                    window.lower()
 
     def show_error(self):
         if self.error:
@@ -488,9 +501,9 @@ class Widget:
         window = tk.Toplevel(self.root)
         window.title("挂件设置")
         window.configure(bg=BG)
-        window.attributes("-topmost", True)
+        window.attributes("-topmost", bool(self.topmost.effective))
         window.resizable(False, False)
-        window.geometry(f"320x235+{max(0, self.root.winfo_x()-80)}+{self.root.winfo_y()+40}")
+        window.geometry(f"340x260+{max(0, self.root.winfo_x()-80)}+{self.root.winfo_y()+40}")
         self.label(window, "显示设置", size=12, bold=True).pack(anchor="w", padx=20, pady=(18, 12))
         row = tk.Frame(window, bg=BG)
         row.pack(fill="x", padx=20)
@@ -500,11 +513,12 @@ class Widget:
         topmost = tk.BooleanVar(value=self.options.always_on_top)
         tk.Checkbutton(window, text="始终置顶", variable=topmost, bg=BG, fg=TEXT,
             selectcolor=CARD, activebackground=BG, activeforeground=TEXT, font=(FONT, 10)).pack(anchor="w", padx=16, pady=12)
+        self.label(window, "全屏应用在前台时，自动暂停置顶。", color=MUTED, size=9).pack(anchor="w", padx=20)
         self.label(window, "关闭挂件不会停止超算作业。", color=MUTED, size=9).pack(anchor="w", padx=20)
         def apply():
             self.options.refresh_seconds = int(interval.get())
             self.options.always_on_top = topmost.get()
-            self.root.attributes("-topmost", topmost.get())
+            self.topmost.update(self.options.always_on_top)
             self.save_preferences()
             window.destroy()
             self.refresh()

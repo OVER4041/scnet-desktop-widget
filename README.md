@@ -10,6 +10,7 @@
 - 关注作业状态、已运行或等待时间、申请核数、申请内存与节点。
 - 可选 EPW q 点与迭代阶段进度，以及现有资源账本累计用时和核时。
 - 默认紧凑卡片，可展开列表；支持拖动、置顶、手动同步及 30/60/120/300 秒刷新间隔。
+- 前台应用全屏时自动暂停置顶并退到后面，退出全屏后恢复原来的置顶偏好；普通最大化不触发。每秒检测一次，支持无边框全屏和多显示器坐标。
 - 已知作业转为终态时显示本机提醒和提示音。断网保留旧数据、冻结推算计时并标记未同步。
 
 ## 启动
@@ -43,3 +44,5 @@
 在 PowerShell 设置 `$env:PYTHONPATH = "$PWD/src"`，然后运行 `python -m unittest discover -s tests -v`。界面使用 Python 标准库 Tkinter。可选视觉验证工具 `scripts/verify_widget.py` 还需要 Pillow、个人配置和 `.state/widget-live-verification.json` 的本机测试快照；这些文件不会随源码发布。
 
 首次实现已验证真实 Slurm 与 EPW 数据、高清屏、折叠、断网保留数据和冻结计时；通用解析与计账测试可离线运行。见 [更新日志](CHANGELOG.md)。
+
+全屏避让的本机实测可运行 `python scripts/verify_fullscreen.py`，需要交互式 Windows 桌面。脚本会短暂打开独立测试窗口，验证全屏、无边框、最大化、最小化以及手动关闭置顶后的行为，并自动关闭测试窗口；不连接超算。检测通过 Windows 窗口与显示器 API 比较前台窗口客户区和完整显示器区域，参见 [GetClientRect](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclientrect) 与 [GetMonitorInfoW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getmonitorinfow)。

@@ -19,3 +19,9 @@ For offline tests set `PYTHONPATH=src` and run `python -m unittest discover -s t
 ### Automatic log discovery
 
 The widget follows active jobs without a job ID or log mapping. It reads scheduler paths and simple stdout redirects as text, and checks the job directory plus its `logs` directory for filenames containing the current job ID. This also finds EPW logs created by Python drivers. It reads at most six tails (160 lines / 8 KiB each), checks resolved paths against `remote_root`, and never executes the submitted script. Home directories are not scanned. `job_logs` remains an explicit override for unusual paths. Manual job selection stays selected for the current session. Log failures do not discard scheduler updates; progress refers to the current phase.
+
+### Yield to fullscreen apps
+
+On Windows, the widget checks the foreground app once a second and temporarily removes topmost status when its client area covers its display. Leaving fullscreen restores the existing preference; a manually disabled topmost preference stays disabled. Borderless fullscreen and secondary-monitor coordinates are supported. Ordinary maximized windows, the desktop and the widget itself are excluded. Settings dialogs follow the same policy.
+
+Run `python scripts/verify_fullscreen.py` on an interactive Windows desktop for a short live test. It creates a separate test window, exercises fullscreen / borderless / maximized / minimized transitions, verifies the native topmost flag, and closes automatically without connecting to HPC.
