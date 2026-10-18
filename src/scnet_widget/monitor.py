@@ -8,6 +8,8 @@ import time
 
 from .backend import Bridge, job_id
 from .config import BridgeError, Settings
+from .backend import remote_path
+from .log_discovery import SCRIPT_MARKER, discovery_paths, log_read_script, read_log_records
 
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY",
@@ -191,8 +193,43 @@ class SlurmMonitor:
         self.cluster = cluster
         self.bridge.cluster(cluster)
         self.previous = None
+        self.log_locations = {}
 
-    async def fetch(self, watched: list[str] = (), log_path: str | None = None, *, log_job_id: str | None = None) -> Snapshot:
+    async def fetch_progress(self, identifier: str, log_path: str | None) -> dict:
+        identifier = job_id(identifier)
+        if log_path:
+            directory, candidates = None, [remote_path(log_path)]
+        else:
+            cached = self.log_locations.get(identifier)
+            if cached is None or time.monotonic()-cached[0] > 300:
+                metadata = await self.bridge.run(self.cluster,
+                    'printf "%s\\n" "$root"\n'
+                    f'scontrol show job -o {identifier} 2>/dev/null || true\n'
+                    f"printf '%s\\n' '{SCRIPT_MARKER}'\n"
+                    f'scontrol write batch_script {identifier} - 2>/dev/null | head -c 24576 || true\n')
+                if metadata.truncated:
+                    raise BridgeError("作业日志位置返回不完整")
+                directory, candidates = discovery_paths(metadata.stdout, identifier)
+                if directory is not None or candidates:
+                    self.log_locations[identifier] = (time.monotonic(), directory, candidates)
+            else:
+                _, directory, candidates = cached
+        progress = {"job_id": identifier, "log_source": "configured" if log_path else "automatic"}
+        if not candidates and not directory:
+            return {**progress, "log_status": "未发现日志位置，可在 job_logs 指定路径"}
+        result = await self.bridge.run(self.cluster, log_read_script(identifier, directory, candidates))
+        if result.truncated:
+            raise BridgeError("日志返回超过读取上限")
+        records = read_log_records(result.stdout)
+        if not records:
+            return {**progress, "log_status": "等待当前作业创建日志"}
+        parsed = [(path, modified, parse_progress(text)) for path, modified, text in records]
+        # Prefer scientific progress over driver banners; follow the newest phase.
+        # Progress from different files is never combined.
+        path, _, values = max(parsed, key=lambda item: (bool(item[2]), item[1]))
+        return {**progress, **values, "log_path": path, "log_status": "已连接日志，等待可识别进度"}
+
+    async def fetch(self, watched: list[str] = (), log_path: str | None = None, *, log_job_id: str | None = None, follow_active: bool = False) -> Snapshot:
         identifiers = list(dict.fromkeys(job_id(value) for value in watched))[:100]
         if self.previous:
             for job in self.previous.jobs:
@@ -215,16 +252,24 @@ printf '%s\\n' '{MARKERS[2]}'
 fi
 '''
         body += f"printf '%s\\n' '{MARKERS[3]}'\n"
-        if log_path:
-            body += self.bridge.guard(log_path, variable="widget_log")
-            body += 'if test -f "$widget_log"; then tail -n 160 -- "$widget_log"; fi\n'
         body += f"printf '\\n%s\\n' '{MARKERS[4]}'\n"
         result = await self.bridge.run(self.cluster, body)
         if result.truncated:
             raise BridgeError("返回数据超过上限，无法确认完整作业数；保留上次记录")
         snapshot = parse_snapshot(result.stdout, self.previous)
-        if log_path and log_job_id:
-            snapshot.progress["job_id"] = log_job_id
+        chosen = next((job for job in snapshot.jobs if job.job_id == log_job_id), None)
+        if chosen is None or (follow_active and not chosen.in_queue):
+            active = sorted((job for job in snapshot.jobs if job.in_queue),
+                            key=lambda job: (job.state not in RUNNING, -int(job.job_id.split('_')[0])))
+            chosen = next(iter(active), chosen)
+        if chosen is None and snapshot.jobs:
+            chosen = max(snapshot.jobs, key=lambda job: (job.ended, job.submitted))
+        if chosen:
+            try:
+                snapshot.progress = await self.fetch_progress(chosen.job_id, log_path if chosen.job_id == log_job_id else None)
+            except (BridgeError, OSError) as exc:
+                snapshot.progress = {"job_id": chosen.job_id, "log_status": "日志暂不可读，将自动重试"}
+                snapshot.warnings.append(f"计算日志暂不可读：{safe_text(str(exc), 100)}")
         self.previous = snapshot
         return snapshot
 

@@ -100,6 +100,7 @@ class Widget:
         self.closed = False
         self.error = ""
         self.focus = options.watched_jobs[0] if options.watched_jobs else None
+        self.manual_focus = False
         self.messages = queue.Queue()
         self.after_refresh = None
         self.compact = True
@@ -298,6 +299,7 @@ class Widget:
     def select_job(self, event=None):
         selected = self.tree.selection()
         if selected and selected[0] != self.focus:
+            self.manual_focus = True
             self.focus = selected[0]
             self.paint()
             self.refresh()
@@ -311,10 +313,12 @@ class Widget:
         self.busy = True
         self.refresh_button.configure(fg=BLUE)
         watched = list(dict.fromkeys(self.options.watched_jobs + ([self.focus] if self.focus else [])))
-        log_path = self.options.job_logs.get(self.focus)
+        focus = self.focus
+        log_path = self.options.job_logs.get(focus)
+        follow_active = not self.manual_focus
         def work():
             try:
-                result = asyncio.run(self.monitor.fetch(watched, log_path, log_job_id=self.focus))
+                result = asyncio.run(self.monitor.fetch(watched, log_path, log_job_id=focus, follow_active=follow_active))
                 self.messages.put((result, ""))
             except Exception as exc:
                 self.messages.put((None, str(exc)))
@@ -344,6 +348,8 @@ class Widget:
                         import winsound
                         winsound.MessageBeep(winsound.MB_ICONASTERISK)
             self.snapshot = snapshot
+            if not self.manual_focus and snapshot.progress.get("job_id"):
+                self.focus = snapshot.progress["job_id"]
             self.online = True
             try:
                 save_json(self.cache, snapshot.to_dict())
@@ -361,6 +367,9 @@ class Widget:
             return None
         jobs = self.snapshot.jobs
         chosen = next((job for job in jobs if job.job_id == self.focus), None)
+        if chosen and not chosen.in_queue and not self.manual_focus:
+            chosen = next((job for job in jobs if job.in_queue and job.state in RUNNING), chosen)
+            self.focus = chosen.job_id
         if not chosen:
             chosen = next((job for job in jobs if job.in_queue), None)
             chosen = chosen or (sorted(jobs, key=lambda job: job.ended, reverse=True)[0] if jobs else None)
@@ -409,16 +418,20 @@ class Widget:
             if progress.get("iteration"):
                 self.progress_caption.configure(text=f"输运迭代 · 第 {progress['iteration']} 步", fg=BLUE)
                 self.progress_value.configure(text=f"误差 {progress['max_error']:.2e}" if progress.get("max_error") is not None else "")
-                self.progress_note.configure(text="迭代阶段；结果收敛仍需核验")
+                self.progress_note.configure(text="自动跟踪日志 · 迭代阶段；收敛仍需核验" if progress.get("log_source") == "automatic" else "迭代阶段；结果收敛仍需核验")
             elif progress.get("q_total"):
                 fraction = progress["q_current"]/progress["q_total"]
                 self.progress_caption.configure(text="散射积分 · q 点进度", fg=BLUE)
                 self.progress_value.configure(text=f"{fraction:.1%}")
-                self.progress_note.configure(text=f"{progress['q_current']:,} / {progress['q_total']:,}  ·  仅对应散射阶段")
+                source = "自动跟踪 · " if progress.get("log_source") == "automatic" else ""
+                self.progress_note.configure(text=f"{source}{progress['q_current']:,} / {progress['q_total']:,}")
             else:
                 self.progress_caption.configure(text="等待计算日志" if job.in_queue else "调度器状态", fg=MUTED)
                 self.progress_value.configure(text="")
-                self.progress_note.configure(text="排队原因："+job.location if job.state in PENDING else "未配置此作业的计算进度日志")
+                self.progress_note.configure(text="排队原因："+job.location if job.state in PENDING else progress.get("log_status", "正在自动查找计算日志"))
+            if progress.get("native_error"):
+                self.progress_caption.configure(text="计算日志报告错误", fg=RED)
+                self.progress_note.configure(text="请检查计算日志中的 Error in routine")
             if job.state in TERMINAL:
                 self.progress_caption.configure(text="调度已完成" if job.state == "COMPLETED" else job.state_label, fg=state_color)
                 self.progress_value.configure(text="")
@@ -516,7 +529,7 @@ def main():
         monitor = SlurmMonitor(settings, options.cluster)
         if args.once:
             focus = options.watched_jobs[0] if options.watched_jobs else None
-            snapshot = asyncio.run(monitor.fetch(options.watched_jobs, options.job_logs.get(focus), log_job_id=focus))
+            snapshot = asyncio.run(monitor.fetch(options.watched_jobs, options.job_logs.get(focus), log_job_id=focus, follow_active=True))
             print(json.dumps(snapshot.to_dict(), ensure_ascii=False, indent=2))
             return
         mutex = None

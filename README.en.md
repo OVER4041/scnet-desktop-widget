@@ -15,3 +15,7 @@ Lost connections retain the last snapshot and freeze interpolated timers. Missin
 The widget never submits/cancels jobs or automatically accepts unknown host keys. Closing it does not affect computations. Personal configuration, credentials and runtime state are excluded. It does not itself wake an AI conversation.
 
 For offline tests set `PYTHONPATH=src` and run `python -m unittest discover -s tests -v`. See [CHANGELOG.md](CHANGELOG.md).
+
+### Automatic log discovery
+
+The widget follows active jobs without a job ID or log mapping. It reads scheduler paths and simple stdout redirects as text, and checks the job directory plus its `logs` directory for filenames containing the current job ID. This also finds EPW logs created by Python drivers. It reads at most six tails (160 lines / 8 KiB each), checks resolved paths against `remote_root`, and never executes the submitted script. Home directories are not scanned. `job_logs` remains an explicit override for unusual paths. Manual job selection stays selected for the current session. Log failures do not discard scheduler updates; progress refers to the current phase.
