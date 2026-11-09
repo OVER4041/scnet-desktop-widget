@@ -9,8 +9,9 @@ import time
 from .backend import Bridge, job_id
 from .config import BridgeError, Settings
 from .backend import remote_path
-from .log_discovery import SCRIPT_MARKER, discovery_paths, log_read_script, read_log_records
+from .log_discovery import SCRIPT_MARKER, discovery_paths, discovery_window, log_read_script, read_log_records
 from .eta import estimate_progress
+from .calculation import parse_calculation, parse_sidecar, evidence_rank
 
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY",
@@ -109,7 +110,10 @@ class Snapshot:
                 "failed": sum(job.state not in {"COMPLETED", "CANCELLED"} for job in ended_today) if self.accounting_available else None}
 
 
-def parse_progress(text: str) -> dict:
+def parse_progress(text: str, path: str = "") -> dict:
+    calculation = parse_calculation(text, path)
+    if calculation:
+        return calculation
     q = re.findall(r"Progression iq \(fine\)\s*=\s*(\d+)\s*/\s*(\d+)", text)
     iterations = re.findall(r"Iteration number:\s*(\d+)", text)
     errors = re.findall(r"([-+]?\d*\.\d+(?:[eEdD][-+]?\d+)?)\s+Max error", text)
@@ -205,30 +209,40 @@ class SlurmMonitor:
             if cached is None or time.monotonic()-cached[0] > 300:
                 metadata = await self.bridge.run(self.cluster,
                     'printf "%s\\n" "$root"\n'
-                    f'scontrol show job -o {identifier} 2>/dev/null || true\n'
+                    f'widget_info=$(scontrol show job -o {identifier} 2>/dev/null) || widget_info=""\n'
+                    'if test -n "$widget_info"; then printf "%s\\n" "$widget_info"; else\n'
+                    f'sacct --allocations --user="$(id -un)" --jobs={identifier} --starttime=1970-01-01 --endtime=now --parsable2 --noheader --format=JobID%64,WorkDir%1024,Start,End 2>/dev/null | '
+                    'while IFS="|" read -r widget_id widget_work widget_start widget_end; do\n'
+                    f'  if test "$widget_id" = "{identifier}"; then printf "JobId=%s WorkDir=%s StartTime=%s EndTime=%s\\n" "$widget_id" "$widget_work" "$widget_start" "$widget_end"; fi\n'
+                    'done || true\nfi\n'
+                    'squeue --noheader --array --user="$(id -un)" --format="__WIDGET_DIR__%i|%Z" 2>/dev/null || true\n'
                     f"printf '%s\\n' '{SCRIPT_MARKER}'\n"
                     f'scontrol write batch_script {identifier} - 2>/dev/null | head -c 24576 || true\n')
                 if metadata.truncated:
                     raise BridgeError("作业日志位置返回不完整")
                 directory, candidates = discovery_paths(metadata.stdout, identifier)
+                window = discovery_window(metadata.stdout, identifier)
                 if directory is not None or candidates:
-                    self.log_locations[identifier] = (time.monotonic(), directory, candidates)
+                    self.log_locations[identifier] = (time.monotonic(), directory, candidates, window)
             else:
-                _, directory, candidates = cached
+                _, directory, candidates, window = cached
         progress = {"job_id": identifier, "log_source": "configured" if log_path else "automatic"}
         if not candidates and not directory:
             return {**progress, "log_status": "未发现日志位置，可在 job_logs 指定路径"}
-        result = await self.bridge.run(self.cluster, log_read_script(identifier, directory, candidates))
+        result = await self.bridge.run(self.cluster, log_read_script(identifier, directory, candidates,
+                                       window=None if log_path else window))
         if result.truncated:
             raise BridgeError("日志返回超过读取上限")
         records = read_log_records(result.stdout)
         if not records:
             return {**progress, "log_status": "等待当前作业创建日志"}
-        parsed = [(path, modified, parse_progress(text)) for path, modified, text in records]
+        parsed = [(path, modified, parse_sidecar(text, identifier) if path.endswith('monitor-progress.json')
+                   else parse_progress(text, path)) for path, modified, text in records]
         # Prefer scientific progress over driver banners; follow the newest phase.
         # Progress from different files is never combined.
-        path, _, values = max(parsed, key=lambda item: (bool(item[2]), item[1]))
-        return {**progress, **values, "log_path": path, "log_status": "已连接日志，等待可识别进度"}
+        path, _, values = max(parsed, key=lambda item: (evidence_rank(item[2]), item[1]))
+        return {**progress, **values, "log_path": path,
+                "log_status": "已读取计算阶段" if values else "已连接日志，等待可识别进度"}
 
     async def fetch(self, watched: list[str] = (), log_path: str | None = None, *, log_job_id: str | None = None, follow_active: bool = False) -> Snapshot:
         identifiers = list(dict.fromkeys(job_id(value) for value in watched))[:100]

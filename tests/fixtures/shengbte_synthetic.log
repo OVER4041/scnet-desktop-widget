@@ -1,0 +1,35 @@
+# Synthetic format fixture. All numbers below are invented test values.
+ ShengBTE 2.1.0
+ Info: Ntot = 216
+ Info: Nlist = 16
+ Info: about to obtain the spectrum
+ Info: spectrum calculation finished in 2.000 seconds
+ Info: Temperature = 250.000000
+ Info: calculating Vp_plus and Vp_minus at 3.000 seconds
+ Info: matrix elements:  10% done after 2.0 s, about 18.0 s left
+ Info: matrix elements:  20% done after 4.0 s, about 16.0 s left
+ Info: matrix elements:  30% done after 6.0 s, about 14.0 s left
+ Info: matrix elements:  40% done after 8.0 s, about 12.0 s left
+ Info: matrix elements:  50% done after 10.0 s, about 10.0 s left
+ Info: matrix elements:  60% done after 12.0 s, about 8.0 s left
+ Info: matrix elements:  70% done after 14.0 s, about 6.0 s left
+ Info: matrix elements:  80% done after 16.0 s, about 4.0 s left
+ Info: matrix elements:  90% done after 18.0 s, about 2.0 s left
+ Info: matrix elements: 100% done after 20.0 s, about 0.0 s left
+ Info: matrix elements computed in 20.000 s
+ Info: start calculating kappa at 24.000 seconds
+ Info: Temperature=250.000000
+ Info: Iteration : 1          Timer : 25.000 seconds
+ Info: Relative change = 8.0E-2
+ Info: Iteration : 2          Timer : 26.000 seconds
+ Info: Relative change = 9.0E-3
+ Info: Iteration : 3          Timer : 27.000 seconds
+ Info: Relative change = 7.0E-4
+ Info: Iteration : 4          Timer : 28.000 seconds
+ Info: Relative change = 6.0E-5
+ Info: Iteration : 5          Timer : 29.000 seconds
+ Info: Relative change = 4.0E-6
+ Info: Iteration : 6          Timer : 30.000 seconds
+ Info: Relative change = 8.5E-7
+ Info: relative asymmetry removed from the converged kappa tensor by symmetrization: 2.0E-5
+ Info: normal exit after 31.000 seconds

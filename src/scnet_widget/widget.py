@@ -18,6 +18,7 @@ from tkinter import messagebox, ttk
 from .config import BridgeError, Settings
 from .topmost import TopmostController
 from .eta import eta_labels
+from .calculation import calculation_labels
 from .monitor import (Job, PENDING, RUNNING, TERMINAL, SlurmMonitor, Snapshot,
                       duration_label, pending_seconds, project_totals)
 
@@ -202,6 +203,8 @@ class Widget:
         self.compact_timer.pack(side="right")
         self.compact_eta = self.label(self.compact_bar, "预计剩余：等待进度", color=BLUE, size=9, anchor="w")
         self.compact_eta.pack(fill="x", pady=(4, 0))
+        self.compact_phase = self.label(self.compact_bar, "", color=MUTED, size=8, anchor="w", wraplength=370, justify="left")
+        self.compact_phase.pack(fill="x", pady=(3, 0))
         self.body = tk.Frame(self.shell, bg=BG)
         self.body.pack(fill="both", expand=True)
         focus_card = tk.Frame(self.body, bg=CARD, highlightbackground=LINE, highlightthickness=1)
@@ -230,7 +233,7 @@ class Widget:
         self.progress_value.pack(side="right")
         self.progress = tk.Canvas(inner, width=340, height=6, bg=LINE, highlightthickness=0)
         self.progress.pack(fill="x", pady=(8, 0))
-        self.progress_note = self.label(inner, "", size=8, color=MUTED, anchor="w")
+        self.progress_note = self.label(inner, "", size=8, color=MUTED, anchor="w", wraplength=340, justify="left")
         self.progress_note.pack(fill="x", pady=(6, 0))
         self.eta_value = self.label(inner, "预计剩余：等待进度", size=9, color=BLUE, anchor="w")
         self.eta_value.pack(fill="x", pady=(7, 0))
@@ -430,7 +433,12 @@ class Widget:
             self.eta_note.configure(text=eta_note)
             self.compact_eta.configure(text=eta_value, fg=BLUE if recent else MUTED)
             fraction = 0
-            if progress.get("iteration"):
+            if progress.get("program"):
+                title, value, note, fraction = calculation_labels(progress)
+                self.progress_caption.configure(text=title, fg=BLUE)
+                self.progress_value.configure(text=value)
+                self.progress_note.configure(text=note)
+            elif progress.get("iteration"):
                 self.progress_caption.configure(text=f"输运迭代 · 第 {progress['iteration']} 步", fg=BLUE)
                 self.progress_value.configure(text=f"误差 {progress['max_error']:.2e}" if progress.get("max_error") is not None else "")
                 self.progress_note.configure(text="自动跟踪日志 · 迭代阶段；收敛仍需核验" if progress.get("log_source") == "automatic" else "迭代阶段；结果收敛仍需核验")
@@ -446,12 +454,19 @@ class Widget:
                 self.progress_note.configure(text="排队原因："+job.location if job.state in PENDING else progress.get("log_status", "正在自动查找计算日志"))
             if progress.get("native_error"):
                 self.progress_caption.configure(text="计算日志报告错误", fg=RED)
-                self.progress_note.configure(text="请检查计算日志中的 Error in routine")
+                self.progress_note.configure(text=progress.get("error_message", "请检查计算日志中的错误信息"))
             if job.state in TERMINAL:
                 self.progress_caption.configure(text="调度已完成" if job.state == "COMPLETED" else job.state_label, fg=state_color)
-                self.progress_value.configure(text="")
-                self.progress_note.configure(text="计算结果仍需独立核验" if job.state == "COMPLETED" else f"退出码：{job.exit_code or '待确认'}")
+                if not progress.get("program"):
+                    self.progress_value.configure(text="")
+                note = self.progress_note.cget("text") if progress.get("program") else ""
+                if progress.get("native_error") or progress.get("iteration_not_converged"):
+                    self.progress_caption.configure(text="调度结束 · 日志异常", fg=RED)
+                self.progress_note.configure(text=(note+"\n" if note else "")+
+                    ("计算结果仍需独立核验" if job.state == "COMPLETED" else f"退出码：{job.exit_code or '待确认'}"))
                 fraction = 1 if job.state == "COMPLETED" else 0
+            self.compact_phase.configure(text=self.progress_caption.cget("text")+
+                (" · "+self.progress_value.cget("text") if self.progress_value.cget("text") else ""))
             self.progress.delete("all")
             self.progress.create_rectangle(0, 0, max(0, (self.progress.winfo_width() or 340)*fraction), 6, fill=state_color, outline="")
         else:
@@ -469,6 +484,7 @@ class Widget:
             self.eta_value.configure(text="预计剩余：—")
             self.eta_note.configure(text="")
             self.compact_eta.configure(text="预计剩余：—")
+            self.compact_phase.configure(text="")
             self.progress.delete("all")
         visible = sorted(snap.jobs, key=lambda item: (not item.in_queue, item.state == "UNKNOWN", -int(re.sub(r"\D", "", item.job_id) or 0)))
         rows = tuple((job.job_id, job.state_label, duration_label(job.elapsed_s)) for job in visible)

@@ -96,7 +96,20 @@ def discovery_paths(output: str, identifier: str) -> tuple[str | None, list[str]
     return directory, list(dict.fromkeys(candidates))[-6:]
 
 
-def log_read_script(identifier: str, directory: str | None, candidates: list[str]) -> str:
+def discovery_window(output: str, identifier: str) -> tuple[str, str] | None:
+    header = output.partition(SCRIPT_MARKER+"\n")[0]
+    start = re.search(r"\bStartTime=(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)", header)
+    end = re.search(r"\bEndTime=(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)", header)
+    work = re.search(r"\bWorkDir=(.*?)(?=\s[A-Za-z][A-Za-z0-9]*=|\n|$)", header)
+    if not start or not work:
+        return None
+    for job, folder in re.findall(r"^__WIDGET_DIR__(\S+)\|(.*)$", header, re.M):
+        if job != identifier and folder.strip() == work[1].strip():
+            return None  # Fixed filenames cannot be attributed in a shared live directory.
+    return start[1], end[1] if end else ""
+
+
+def log_read_script(identifier: str, directory: str | None, candidates: list[str], *, window=None) -> str:
     """Read at most six small tails, checking real paths including symlinks."""
     body = r'''
 widget_read_log() {
@@ -105,10 +118,22 @@ widget_read_log() {
   case "$file" in "$root"/*) ;; *) return 0;; esac
   test -f "$file" && test -r "$file" || return 0
   printf '%s\0%s\0' "${file#"$root"/}" "$(stat -c %Y -- "$file")"
-  tail -c 8192 -- "$file" | tail -n 160
+  if [[ "$file" == */monitor-progress.json ]]; then
+    head -c 8192 -- "$file"
+  elif test "$(stat -c %s -- "$file")" -gt 8192; then
+    head -c 2048 -- "$file"
+    printf '\n'
+    tail -c 6144 -- "$file" | tail -n 160
+  else
+    cat -- "$file"
+  fi
   printf '\0'
 }
 '''
+    if window:
+        start, end = window
+        body += f"widget_since=$(date -d {quote(start)} +%s 2>/dev/null) || widget_since=0\n"
+        body += f"widget_until=$(date -d {quote(end)} +%s 2>/dev/null) || widget_until=0\n" if end else "widget_until=0\n"
     # Explicit/scheduler paths and job-id-matched files are sorted together by mtime.
     body += "{\n"
     for path in candidates:
@@ -129,6 +154,22 @@ case "$widget_dir" in "$root"/*)
     done
   fi;;
 esac
+'''
+            if window:
+                body += f'''if test "$widget_since" -gt 0 && test -d "$widget_dir"; then
+case "$widget_dir" in "$root"/*)
+  find "$widget_dir" -maxdepth 1 -type f \\( -name '*.out' -o -name '*.log' -o -name '*.err' -o -name 'monitor-progress.json' \\) -print0 2>/dev/null |
+  while IFS= read -r -d '' widget_file; do
+    widget_name=${{widget_file##*/}}
+    # Ignore filenames belonging to another numeric job or a dated archive.
+    [[ ! "$widget_name" =~ [0-9]{{6,}} ]] || continue
+    widget_mtime=$(stat -c %Y -- "$widget_file") || continue
+    if test "$widget_mtime" -ge "$widget_since" && {{ test "$widget_until" -eq 0 || test "$widget_mtime" -le "$((widget_until+2))"; }}; then
+      printf '%s\\0' "$widget_file"
+    fi
+  done;;
+esac
+fi
 '''
     body += r'''} | sort -zu | while IFS= read -r -d '' widget_file; do
   widget_real=$(realpath -e -- "$widget_file" 2>/dev/null) || continue

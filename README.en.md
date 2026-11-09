@@ -29,3 +29,15 @@ Run `python scripts/verify_fullscreen.py` on an interactive Windows desktop for 
 ### Estimated remaining phase time
 
 Compact and expanded views show an approximate remaining q-point phase time, using `(total - current) / recent progress rate`. The rate uses at most 10 minutes and 32 observations, including idle intervals, and needs at least 30 seconds with positive progress. Samples stay in the local snapshot across short restarts. Job, log, total, counter or runtime changes reset sampling. Stalled output, insufficient data, offline/stale snapshots, unknown iteration convergence and inactive jobs suppress an estimate. This is the current phase only; it excludes subsequent stages. Estimates update with observations rather than counting down unobserved work.
+
+### Phonons and phonon BTE
+
+The widget recognizes QE PH DFPT/representation/inner iterations, force SCF accuracy, Phonopy stage messages, and ShengBTE spectrum, matrix-element percentage, temperature, BTE iterations and relative changes. Only explicit totals (matrix elements or completed batch items) receive an observed-speed ETA. SCF and BTE convergence do not have a known iteration total. Numerical/program completion is distinct from scheduler completion and physical convergence.
+
+Fixed-name logs in the job directory or its `logs` directory are eligible only inside the recorded job time window; concurrent allocations sharing the directory disable this inference. Explicit `job_logs` mappings remain supported. Historical job directories can be recovered from accounting. Reads remain bounded to six small files/header-and-tail segments, with resolved path checks.
+
+An optional atomically written `monitor-progress.json` may contain `{"job_id":"123456","program":"force_batch","phase":"ifc3","completed":12,"total":128}`. The ID must match; completed counts must describe successful work, not the currently running item. Supported programs: `force_batch`, `Phonopy`, `QE PH`, `ShengBTE`; phase identifiers use lowercase letters/digits/underscores. No batch total is inferred when the driver does not provide it. `status: failed` suppresses ETA.
+
+Run `python scripts/verify_phonon.py` (Tk/Pillow) to replay synthetic program-log format samples without HPC access.
+
+All numeric values in public fixtures are invented for parser tests. Real computation logs and local verification records are excluded from publication.

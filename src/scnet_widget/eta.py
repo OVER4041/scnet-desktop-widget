@@ -3,6 +3,12 @@ import math
 from statistics import median
 
 
+def _counter(progress):
+    if "work_total" in progress:
+        return {**progress, "q_current": progress.get("work_current"), "q_total": progress.get("work_total")}
+    return progress
+
+
 def _q_phase(progress):
     current, total = progress.get("q_current"), progress.get("q_total")
     return (type(current) is int and type(total) is int and 0 <= current <= total
@@ -14,10 +20,16 @@ def estimate_progress(progress: dict, *, now: float, previous: dict | None = Non
                       previous_at: float | None = None, active: bool = True,
                       elapsed_s: int | None = None, previous_elapsed_s: int | None = None) -> dict:
     result = {key: value for key, value in progress.items() if not key.startswith("eta_")}
+    progress = _counter(progress)
+    previous = _counter(previous or {})
     if not active:
         return {**result, "eta_state": "inactive"}
     if progress.get("native_error"):
         return {**result, "eta_state": "error"}
+    if progress.get("iteration_not_converged"):
+        return {**result, "eta_state": "not_converged"}
+    if progress.get("native_footer") and progress.get("program"):
+        return {**result, "eta_state": "program_complete"}
     if progress.get("iteration"):
         return {**result, "eta_state": "iteration"}
     if not _q_phase(progress):
@@ -27,7 +39,7 @@ def estimate_progress(progress: dict, *, now: float, previous: dict | None = Non
         return {**result, "eta_state": "phase_complete"}
     previous = previous or {}
     same_phase = (_q_phase(previous) and all(progress.get(key) == previous.get(key)
-                  for key in ("job_id", "log_path", "q_total"))
+                  for key in ("job_id", "log_path", "q_total", "program", "phase", "phase_cycle", "temperature_k"))
                   and current >= previous["q_current"]
                   and not (elapsed_s is not None and previous_elapsed_s is not None
                            and elapsed_s < previous_elapsed_s))
@@ -83,12 +95,14 @@ def eta_labels(progress: dict, *, recent: bool, running: bool) -> tuple[str, str
         label = (f"{days}天" if days else "")+(f"{hours}小时" if hours else "")
         label += f"{minutes}分" if minutes else ""
         return ("本阶段剩余约 "+label,
-                f"最近 {max(1, math.ceil(progress['eta_window_s']/60))} 分钟速度 · {progress['eta_rate']*60:,.1f} 点/分")
+                f"最近 {max(1, math.ceil(progress['eta_window_s']/60))} 分钟速度 · {progress['eta_rate']*60:,.1f} {progress.get('work_unit', '点')}/分")
     labels = {
         "collecting": ("预计剩余：采样中", "等待下一次进度变化"),
         "stalled": ("预计剩余：等待进度更新", "近期进度未推进，暂不估算"),
         "phase_complete": ("本阶段已完成", "等待后续阶段；总剩余时间未知"),
+        "program_complete": ("程序已结束", "等待调度确认；物理收敛仍需核验"),
         "iteration": ("预计剩余：暂无法估算", "迭代收敛步数未知"),
         "error": ("预计剩余：暂停估算", "计算日志报告错误"),
+        "not_converged": ("预计剩余：暂停估算", "日志报告未收敛，需检查结果"),
     }
     return labels.get(state, ("预计剩余：等待进度", "识别到有明确总量的阶段后估算"))
